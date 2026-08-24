@@ -17,7 +17,7 @@ android.ndk = 25b
 android.accept_sdk_license = True
 
 [buildozer]
-log_level = 2
+log_level = 1
 build_dir = .buildozer
 bin_dir = bin
 
