@@ -2,6 +2,10 @@
 title = Dark Knight Chronicles
 package.name = darkknight
 package.domain = org.darkknight
+
+# TAMBAHKAN BARIS INI:
+version = 0.1
+
 source.dir = .
 source.include_exts = py,png,jpg,kv,atlas
 requirements = python3,kivy
@@ -16,3 +20,4 @@ android.accept_sdk_license = True
 log_level = 2
 build_dir = .buildozer
 bin_dir = bin
+
