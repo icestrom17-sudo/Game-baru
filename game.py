@@ -1,81 +1,85 @@
-import pygame
-import sys
+from kivy.uix.widget import Widget
+from kivy.clock import Clock
+from kivy.graphics import Color, Rectangle, Ellipse, Line
+from kivy.core.window import Window
+import random
 
-# Inisialisasi Pygame
-pygame.init()
+class DarkKnightGame(Widget):
+    def __init__(self, **kwargs):
+        super(DarkKnightGame, self).__init__(**kwargs)
+        # Karakter: Dark Knight Bermasker
+        self.player_x = 100
+        self.player_y = 100
+        self.player_vx = 0
+        self.player_vy = 0
+        self.is_grounded = False
+        self.mask_glow = 1.0  # Efek visual topeng
 
-# Konfigurasi Layar (Resolusi 2D)
-SCREEN_WIDTH = 800
-SCREEN_HEIGHT = 600
-screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
-pygame.display.set_caption("Kisah Kesatria Penghianatan (Revenge)")
+        # Sistem Boss: 6 Kesatria Cahaya Pengkhianat (Bergiliran / Cuphead Style)
+        self.boss_hp = 100
+        self.boss_state = 1  # Mewakili salah satu dari 6 kesatria
+        self.boss_x = 700
+        self.boss_y = 150
+        self.boss_bullets = []
 
-clock = pygame.time.Clock()
+        Window.bind(on_key_down=self._on_key_down)
+        Clock.schedule_interval(self.update, 1.0 / 60.0)
 
-# Warna (Simulasi Grafis Sederhana ala Metroidvania / Hollow Knight)
-BG_COLOR = (15, 15, 20)       # Nuansa gelap kelam
-PLAYER_COLOR = (200, 50, 50)  # Merah menyala (kesatria penuh dendam)
-GROUND_COLOR = (50, 50, 70)   # Warna tanah pijakan
-ENEMY_COLOR = (100, 100, 100) # Musuh pengkhianat kerajaan
+    def _on_key_down(self, keyboard, keycode, text, modifiers):
+        # Mekanik Kontrol ala Hollow Knight (Lompat & Dash)
+        if keycode[1] == 'spacebar' and self.is_grounded:
+            self.player_vy = 14  # Lompatan tinggi
+            self.is_grounded = False
+        elif keycode[1] == 'left':
+            self.player_x -= 20  # Dash/Gerak cepat ke kiri
+        elif keycode[1] == 'right':
+            self.player_x += 20  # Dash/Gerak cepat ke kanan
+        return True
 
-# Properti Pemain (Kesatria)
-player_x = 100
-player_y = 400
-player_width = 40
-player_height = 60
-player_vel_y = 0
-is_jumping = False
-gravity = 0.8
-jump_strength = -14
-speed = 5
+    def update(self, dt):
+        # Gravitasi & Fisika Lompat
+        self.player_y += self.player_vy
+        self.player_vy -= 0.65  # Tarikan gravitasi
 
-# Loop Utama Game
-running = True
-while running:
-    screen.fill(BG_COLOR)
+        # Lantai Arena Kerajaan Cahaya
+        if self.player_y <= 80:
+            self.player_y = 80
+            self.player_vy = 0
+            self.is_grounded = True
 
-    # 1. Tangkap Kontrol / Input Tombol (Keyboard HP / Termux-X11)
-    for event in pygame.event.get():
-        if event.type == pygame.QUIT:
-            pygame.quit()
-            sys.exit()
-        
-        if event.type == pygame.KEYDOWN:
-            if event.key == pygame.K_SPACE and not is_jumping:
-                player_vel_y = jump_strength
-                is_jumping = True
+        # Pola Serangan Bos (Cuphead Style: Tembakan proyektil cahaya beruntun)
+        if random.random() < 0.05:
+            self.boss_bullets.append({'x': self.boss_x, 'y': self.boss_y + 40, 'vx': -8, 'vy': random.choice([-2, 0, 2])})
 
-    keys = pygame.key.get_pressed()
-    if keys[pygame.K_LEFT]:
-        player_x -= speed
-    if keys[pygame.K_RIGHT]:
-        player_x += speed
+        for bullet in self.boss_bullets[:]:
+            bullet['x'] += bullet['vx']
+            bullet['y'] += bullet['vy']
+            if bullet['x'] < 0:
+                self.boss_bullets.remove(bullet)
 
-    # 2. Fisika Lompat & Gravitasi
-    player_vel_y += gravity
-    player_y += player_vel_y
+        # Render Grafis ke Layar
+        self.canvas.clear()
+        with self.canvas:
+            # 1. Background: Kastil Kerajaan Cahaya yang Gelap & Megah
+            Color(0.03, 0.03, 0.08, 1)
+            Rectangle(pos=(0, 0), size=(Window.width, Window.height))
 
-    # Batas Lantai Tanah
-    floor_level = 480 - player_height
-    if player_y >= floor_level:
-        player_y = floor_level
-        player_vel_y = 0
-        is_jumping = False
+            # 2. Lantai Kerajaan
+            Color(0.15, 0.15, 0.2, 1)
+            Rectangle(pos=(0, 0), size=(Window.width, 80))
 
-    # 3. Gambar Elemen Game ke Layar
-    # Gambar Lantai
-    pygame.draw.rect(screen, GROUND_COLOR, (0, 480, SCREEN_WIDTH, 120))
-    
-    # Gambar Kesatria (Kotak Merah Penuh Dendam)
-    pygame.draw.rect(screen, PLAYER_COLOR, (player_x, player_y, player_width, player_height))
-    
-    # Gambar Bayangan Musuh Pengkhianat di Sebelah Kanan
-    pygame.draw.rect(screen, ENEMY_COLOR, (600, 420, 40, 60))
+            # 3. Render Dark Knight (Kesatria Berjubah Gelap & Topeng Pucat)
+            Color(0.1, 0.1, 0.12, 1)
+            Rectangle(pos=(self.player_x, self.player_y), size=(35, 55)) # Jubah
+            # Topeng ikonik yang bersinar
+            Color(0.9, 0.9, 1.0, 1)
+            Ellipse(pos=(self.player_x + 20, self.player_y + 35), size=(12, 12))
 
-    # Tampilkan teks narasi di atas layar
-    font = pygame.font.SysFont(None, 24)
-    narasi = font.render("Misi: Balas dendam pada kerajaan yang mengkhianati...", True, (150, 150, 150))
-    screen.blit(narasi, (50, 30))
+            # 4. Render Boss: Salah satu dari 6 Kesatria Cahaya Pengkhianat
+            Color(1.0, 0.8, 0.2, 1) # Cahaya menyilaukan khas musuh
+            Rectangle(pos=(self.boss_x, self.boss_y), size=(60, 90))
 
-    pygame.display.flip()
-    clock.tick(60)
+            # 5. Render Proyektil Peluru Cahaya (Cuphead Bullet-Hell Style)
+            Color(1, 1, 0.5, 1)
+            for bullet in self.boss_bullets:
+                Ellipse(pos=(bullet['x'], bullet['y']), size=(12, 12))
