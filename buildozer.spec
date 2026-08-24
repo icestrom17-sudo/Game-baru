@@ -8,7 +8,7 @@ version = 0.1
 
 source.dir = .
 source.include_exts = py,png,jpg,kv,atlas
-requirements = python3,kivy
+requirements = python3,kivy,cython==0.29.36
 orientation = landscape
 android.permissions = INTERNET
 android.api = 33
