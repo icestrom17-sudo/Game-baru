@@ -9,7 +9,7 @@ version = 0.1
 source.dir = .
 source.include_exts = py,png,jpg,jpeg,kv,atlas
 
-requirements = python3,kivy
+requirements = python3==3.12.8,hostpython3==3.12.8,kivy
 
 orientation = landscape
 
