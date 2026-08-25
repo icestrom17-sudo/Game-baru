@@ -9,23 +9,19 @@ version = 0.1
 source.dir = .
 source.include_exts = py,png,jpg,jpeg,kv,atlas
 
-requirements = python3==3.12.8,hostpython3==3.12.8,kivy
+requirements = python3,kivy
 
 orientation = landscape
-
 fullscreen = 1
 
 android.permissions = INTERNET
-
 android.api = 33
 android.minapi = 24
 android.ndk = 25b
-
 android.accept_sdk_license = True
 
 [buildozer]
 
 log_level = 2
-
 build_dir = .buildozer
 bin_dir = bin
