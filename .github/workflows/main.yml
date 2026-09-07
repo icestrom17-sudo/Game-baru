@@ -64,7 +64,6 @@ jobs:
           python --version
           java -version
           buildozer --version
-          $ANDROID_HOME/build-tools/37.0.0/aidl --version
 
       - name: Clean previous build
         run: |
