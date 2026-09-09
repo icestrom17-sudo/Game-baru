@@ -1,3 +1,6 @@
+name: Build Android APK
+on: push: branches: - main workflow_dispatch:
+jobs: build: runs-on: ubuntu-22.04
 steps:
   - name: Checkout source
     uses: actions/checkout@v4
@@ -22,6 +25,7 @@ steps:
         unzip \
         autoconf \
         automake \
+        autopoint \
         libtool \
         pkg-config \
         zlib1g-dev \
@@ -34,7 +38,9 @@ steps:
         gcc \
         g++ \
         patch \
-        wget
+        wget \
+        lbzip2 \
+        ccache
 
   - name: Accept Android SDK licenses
     run: |
@@ -46,8 +52,6 @@ steps:
         "platform-tools" \
         "platforms;android-33" \
         "build-tools;37.0.0"
-
-      yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses || true
 
   - name: Install Buildozer
     run: |
@@ -66,22 +70,13 @@ steps:
       rm -rf "$HOME/.buildozer/android/platform/android-sdk"
       ln -s "$ANDROID_HOME" "$HOME/.buildozer/android/platform/android-sdk"
 
-      yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses || true
-
-      "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" \
-        "platform-tools" \
-        "platforms;android-33" \
-        "build-tools;37.0.0"
-
   - name: Check Android SDK
     run: |
       echo "ANDROID_HOME=$ANDROID_HOME"
-      echo "ANDROIDSDK=$ANDROID_HOME"
-
+      echo "Checking Build Tools..."
       ls -la "$ANDROID_HOME/build-tools/37.0.0"
-
+      echo "Checking AIDL..."
       "$ANDROID_HOME/build-tools/37.0.0/aidl" --version
-
       test -f "$ANDROID_HOME/build-tools/37.0.0/aidl"
 
   - name: Check environment
@@ -91,11 +86,10 @@ steps:
       buildozer --version
 
   - name: Build APK
-    env:
-      ANDROIDSDK: ${{ env.ANDROID_HOME }}
-      ANDROIDAPI: "33"
-      NDKAPI: "24"
     run: |
+      export ANDROIDSDK="$ANDROID_HOME"
+      export ANDROIDAPI="33"
+      export NDKAPI="24"
       buildozer -v android debug
 
   - name: Upload APK Artifact
