@@ -34,30 +34,16 @@ jobs:
         run: |
           python -m pip install --upgrade pip setuptools wheel
           python -m pip install "Cython==0.29.36"
-          python -m pip install git+https://github.com/kivy/buildozer.git@master
+          python -m pip install buildozer
 
-      - name: Setup Android SDK Tools Structure
+      - name: Accept Android SDK Licenses
         run: |
-          # Buat folder SDK Buildozer
-          mkdir -p ~/.buildozer/android/platform/android-sdk/cmdline-tools
-          cd ~/.buildozer/android/platform/android-sdk/cmdline-tools
-          
-          # Unduh commandlinetools resmi
-          wget -q https://dl.google.com/android/repository/commandlinetools-linux-9441913_latest.zip
-          unzip -q commandlinetools-linux-9441913_latest.zip
-          mv cmdline-tools latest
-          rm commandlinetools-linux-9441913_latest.zip
-          
-          # Buat link symlink ke tools/bin agar sesuai ekspektasi Buildozer
-          mkdir -p ~/.buildozer/android/platform/android-sdk/tools
-          ln -s ~/.buildozer/android/platform/android-sdk/cmdline-tools/latest/bin ~/.buildozer/android/platform/android-sdk/tools/bin
-          
-          # Setujui lisensi
-          yes | ~/.buildozer/android/platform/android-sdk/cmdline-tools/latest/bin/sdkmanager --licenses || true
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses || true
 
       - name: Build APK
         run: |
-          buildozer -v android debug
+          # Memaksa Buildozer menggunakan SDK bawaan Ubuntu runner
+          buildozer android debug --sdk_dir="$ANDROID_HOME"
 
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
