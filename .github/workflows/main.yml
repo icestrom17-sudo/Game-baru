@@ -36,9 +36,12 @@ jobs:
           python -m pip install "Cython==0.29.36"
           python -m pip install buildozer
 
-      - name: Accept Android SDK Licenses
+      - name: Link SDK and Install Build Tools
         run: |
+          mkdir -p "$HOME/.buildozer/android/platform"
+          ln -s "$ANDROID_HOME" "$HOME/.buildozer/android/platform/android-sdk"
           yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses || true
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platform-tools" "platforms;android-33" "build-tools;33.0.0"
 
       - name: Build APK
         run: |
