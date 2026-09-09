@@ -1,82 +1,106 @@
-name: Build Android APK
+steps:
+  - name: Checkout source
+    uses: actions/checkout@v4
 
-on:
-  push:
-    branches:
-      - main
-  workflow_dispatch:
+  - name: Setup Python
+    uses: actions/setup-python@v5
+    with:
+      python-version: "3.12"
 
-jobs:
-  build:
-    runs-on: ubuntu-22.04
+  - name: Setup Java 17
+    uses: actions/setup-java@v4
+    with:
+      distribution: temurin
+      java-version: "17"
 
-    steps:
-      - name: Checkout source
-        uses: actions/checkout@v4
+  - name: Install Linux dependencies
+    run: |
+      sudo apt-get update
+      sudo apt-get install -y \
+        git \
+        zip \
+        unzip \
+        autoconf \
+        automake \
+        libtool \
+        pkg-config \
+        zlib1g-dev \
+        libncurses5-dev \
+        libncursesw5-dev \
+        libffi-dev \
+        libssl-dev \
+        cmake \
+        make \
+        gcc \
+        g++ \
+        patch \
+        wget
 
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
+  - name: Accept Android SDK licenses
+    run: |
+      yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses || true
 
-      - name: Setup Java 17
-        uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: "17"
+  - name: Install Android SDK packages
+    run: |
+      "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" \
+        "platform-tools" \
+        "platforms;android-33" \
+        "build-tools;37.0.0"
 
-      - name: Install Linux dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            git \
-            zip \
-            unzip \
-            autoconf \
-            automake \
-            libtool \
-            pkg-config \
-            zlib1g-dev \
-            libncurses5-dev \
-            libncursesw5-dev \
-            libffi-dev \
-            libssl-dev
+      yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses || true
 
-      - name: Accept Android SDK licenses
-        run: |
-          yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses || true
+  - name: Install Buildozer
+    run: |
+      python -m pip install --upgrade pip setuptools wheel
+      python -m pip install "Cython==0.29.36"
+      python -m pip install buildozer
 
-      - name: Install Android SDK packages
-        run: |
-          $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager \
-            "platform-tools" \
-            "platforms;android-33" \
-            "build-tools;37.0.0"
+  - name: Clean previous build
+    run: |
+      rm -rf .buildozer
+      rm -rf bin
 
-      - name: Install Buildozer
-        run: |
-          python -m pip install --upgrade pip setuptools wheel
-          python -m pip install "Cython==0.29.36"
-          python -m pip install buildozer
+  - name: Prepare Buildozer Android SDK
+    run: |
+      mkdir -p "$HOME/.buildozer/android/platform"
+      rm -rf "$HOME/.buildozer/android/platform/android-sdk"
+      ln -s "$ANDROID_HOME" "$HOME/.buildozer/android/platform/android-sdk"
 
-      - name: Check environment
-        run: |
-          python --version
-          java -version
-          buildozer --version
+      yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses || true
 
-      - name: Clean previous build
-        run: |
-          rm -rf .buildozer
-          rm -rf bin
+      "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" \
+        "platform-tools" \
+        "platforms;android-33" \
+        "build-tools;37.0.0"
 
-      - name: Build APK
-        run: |
-          buildozer -v android debug
+  - name: Check Android SDK
+    run: |
+      echo "ANDROID_HOME=$ANDROID_HOME"
+      echo "ANDROIDSDK=$ANDROID_HOME"
 
-      - name: Upload APK Artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: DarkKnight-APK
-          path: bin/*.apk
-          if-no-files-found: error
+      ls -la "$ANDROID_HOME/build-tools/37.0.0"
+
+      "$ANDROID_HOME/build-tools/37.0.0/aidl" --version
+
+      test -f "$ANDROID_HOME/build-tools/37.0.0/aidl"
+
+  - name: Check environment
+    run: |
+      python --version
+      java -version
+      buildozer --version
+
+  - name: Build APK
+    env:
+      ANDROIDSDK: ${{ env.ANDROID_HOME }}
+      ANDROIDAPI: "33"
+      NDKAPI: "24"
+    run: |
+      buildozer -v android debug
+
+  - name: Upload APK Artifact
+    uses: actions/upload-artifact@v4
+    with:
+      name: DarkKnight-APK
+      path: bin/*.apk
+      if-no-files-found: error
