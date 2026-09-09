@@ -30,9 +30,11 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y git zip unzip autoconf automake autopoint libtool pkg-config zlib1g-dev libncurses5-dev libncursesw5-dev libffi-dev libssl-dev cmake make gcc g++ patch wget lbzip2 ccache
 
-      - name: Install patched python-for-android (fix pip self-upgrade bug)
+      - name: Install Buildozer and Cython
         run: |
-          python -m pip install --upgrade --force-reinstall "https://github.com/kivy/python-for-android/archive/master.zip"
+          python -m pip install --upgrade pip setuptools wheel
+          python -m pip install "Cython==0.29.36"
+          python -m pip install buildozer
 
       - name: Pre-setup Buildozer SDK & Licenses
         run: |

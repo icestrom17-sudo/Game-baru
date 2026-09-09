@@ -8,6 +8,7 @@ source.dir = .
 source.include_exts = py,png,jpg,jpeg,kv,atlas
 
 requirements = python3,kivy
+p4a.branch = master
 
 orientation = landscape
 fullscreen = 1
