@@ -308,9 +308,9 @@ class DarkKnightGame(Widget):
 
     def draw_game(self):
 
-        self.canvas.clear()
+        self.canvas.before.clear()
 
-        with self.canvas:
+        with self.canvas.before:
 
             # Background
             Color(0.02, 0.02, 0.06, 1)
