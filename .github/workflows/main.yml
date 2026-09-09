@@ -36,14 +36,13 @@ jobs:
           python -m pip install "Cython==0.29.36"
           python -m pip install buildozer
 
-      - name: Accept Android SDK Licenses
+      - name: Accept SDK Licenses
         run: |
           yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses || true
 
       - name: Build APK
         run: |
-          # Memaksa Buildozer menggunakan SDK bawaan Ubuntu runner
-          buildozer android debug --sdk_dir="$ANDROID_HOME"
+          buildozer -v android debug
 
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
