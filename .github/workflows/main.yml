@@ -17,7 +17,7 @@ jobs:
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version: "3.11"
 
       - name: Setup Java 17
         uses: actions/setup-java@v4
@@ -30,49 +30,14 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y git zip unzip autoconf automake autopoint libtool pkg-config zlib1g-dev libncurses5-dev libncursesw5-dev libffi-dev libssl-dev cmake make gcc g++ patch wget lbzip2 ccache
 
-      - name: Accept Android SDK licenses
-        run: |
-          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses || true
-
-      - name: Install Android SDK packages
-        run: |
-          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platform-tools" "platforms;android-33" "build-tools;37.0.0"
-
-      - name: Install Buildozer
+      - name: Install Buildozer and Cython
         run: |
           python -m pip install --upgrade pip setuptools wheel
           python -m pip install "Cython==0.29.36"
           python -m pip install buildozer
 
-      - name: Clean previous build
-        run: |
-          rm -rf .buildozer
-          rm -rf bin
-
-      - name: Prepare Buildozer Android SDK
-        run: |
-          mkdir -p "$HOME/.buildozer/android/platform"
-          rm -rf "$HOME/.buildozer/android/platform/android-sdk"
-          ln -s "$ANDROID_HOME" "$HOME/.buildozer/android/platform/android-sdk"
-
-      - name: Check Android SDK
-        run: |
-          echo "ANDROID_HOME=$ANDROID_HOME"
-          ls -la "$ANDROID_HOME/build-tools/37.0.0"
-          "$ANDROID_HOME/build-tools/37.0.0/aidl" --version
-          test -f "$ANDROID_HOME/build-tools/37.0.0/aidl"
-
-      - name: Check environment
-        run: |
-          python --version
-          java -version
-          buildozer --version
-
       - name: Build APK
         run: |
-          export ANDROIDSDK="$ANDROID_HOME"
-          export ANDROIDAPI="33"
-          export NDKAPI="24"
           buildozer -v android debug
 
       - name: Upload APK Artifact
