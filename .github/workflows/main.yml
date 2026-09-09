@@ -36,9 +36,21 @@ jobs:
           python -m pip install "Cython==0.29.36"
           python -m pip install buildozer
 
-      - name: Accept SDK Licenses
+      - name: Pre-setup Buildozer SDK & Licenses
         run: |
-          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses || true
+          # 1. Buat direktori SDK dan lisensi untuk Buildozer
+          mkdir -p ~/.buildozer/android/platform/android-sdk/licenses
+          
+          # 2. Salin lisensi resmi dari runner Ubuntu
+          if [ -d "$ANDROID_HOME/licenses" ]; then
+            cp -r "$ANDROID_HOME/licenses/"* ~/.buildozer/android/platform/android-sdk/licenses/
+          fi
+          
+          # 3. Setujui lisensi langsung di direktori Buildozer
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --sdk_root="$HOME/.buildozer/android/platform/android-sdk" --licenses || true
+          
+          # 4. Pasang platform-tools dan build-tools versi 33.0.2 secara eksplisit
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --sdk_root="$HOME/.buildozer/android/platform/android-sdk" "platform-tools" "platforms;android-33" "build-tools;33.0.2" || true
 
       - name: Build APK
         run: |
