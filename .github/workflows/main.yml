@@ -38,19 +38,31 @@ jobs:
 
       - name: Pre-setup Buildozer SDK & Licenses
         run: |
-          # 1. Buat direktori SDK dan lisensi untuk Buildozer
-          mkdir -p ~/.buildozer/android/platform/android-sdk/licenses
-          
-          # 2. Salin lisensi resmi dari runner Ubuntu
-          if [ -d "$ANDROID_HOME/licenses" ]; then
-            cp -r "$ANDROID_HOME/licenses/"* ~/.buildozer/android/platform/android-sdk/licenses/
+          BUILDOZER_SDK="$HOME/.buildozer/android/platform/android-sdk"
+
+          # 1. Buat direktori SDK untuk Buildozer
+          mkdir -p "$BUILDOZER_SDK/licenses"
+          mkdir -p "$BUILDOZER_SDK/cmdline-tools"
+
+          # 2. Salin cmdline-tools (berisi sdkmanager asli) dari SDK bawaan runner
+          if [ -d "$ANDROID_HOME/cmdline-tools/latest" ]; then
+            cp -r "$ANDROID_HOME/cmdline-tools/latest" "$BUILDOZER_SDK/cmdline-tools/latest"
           fi
-          
-          # 3. Setujui lisensi langsung di direktori Buildozer
-          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --sdk_root="$HOME/.buildozer/android/platform/android-sdk" --licenses || true
-          
-          # 4. Pasang platform-tools dan build-tools versi 33.0.2 secara eksplisit
-          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --sdk_root="$HOME/.buildozer/android/platform/android-sdk" "platform-tools" "platforms;android-33" "build-tools;33.0.2" || true
+
+          # 3. Buat symlink kompatibilitas path lama (tools/bin/sdkmanager)
+          #    karena python-for-android mencari sdkmanager di path lama ini
+          ln -sfn "$BUILDOZER_SDK/cmdline-tools/latest" "$BUILDOZER_SDK/tools"
+
+          # 4. Salin lisensi resmi dari runner Ubuntu
+          if [ -d "$ANDROID_HOME/licenses" ]; then
+            cp -r "$ANDROID_HOME/licenses/"* "$BUILDOZER_SDK/licenses/"
+          fi
+
+          # 5. Setujui lisensi menggunakan sdkmanager yang baru disalin
+          yes | "$BUILDOZER_SDK/cmdline-tools/latest/bin/sdkmanager" --sdk_root="$BUILDOZER_SDK" --licenses || true
+
+          # 6. Pasang platform-tools dan build-tools (samakan dengan buildozer.spec: 33.0.0)
+          "$BUILDOZER_SDK/cmdline-tools/latest/bin/sdkmanager" --sdk_root="$BUILDOZER_SDK" "platform-tools" "platforms;android-33" "build-tools;33.0.0" || true
 
       - name: Build APK
         run: |
