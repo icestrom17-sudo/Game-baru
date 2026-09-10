@@ -2,9 +2,12 @@ from kivy.uix.widget import Widget
 from kivy.uix.label import Label
 from kivy.clock import Clock
 from kivy.graphics import Color, Rectangle, RoundedRectangle, Ellipse, Line, Triangle
+from kivy.graphics import PushMatrix, PopMatrix, Rotate
 from kivy.core.window import Window
+from kivy.core.image import Image as CoreImage
 import random
 import math
+import os
 
 
 # =================================================================
@@ -82,7 +85,11 @@ class DarkKnightGame(Widget):
     DASH_SPEED = 1100
     DASH_TIME = 0.16
     DASH_COOLDOWN = 0.7
-    ATTACK_COOLDOWN = 0.28
+    MELEE_COOLDOWN = 0.24
+    MELEE_RANGE = 62
+    GUN_COOLDOWN = 0.42
+    GUN_SPEED = 1150
+    BULLET_RADIUS = 7
     INVULN_TIME = 1.0
     FLOOR_Y = 80
     MAX_MASKS = 5
@@ -119,9 +126,11 @@ class DarkKnightGame(Widget):
         self.dash_cooldown = 0
         self.trail = []
 
-        self.attack_cooldown = 0
-        self.attack_anim = 0
-        self.player_attacks = []
+        self.melee_cooldown = 0
+        self.melee_anim = 0
+        self.gun_cooldown = 0
+        self.gun_flash = 0
+        self.player_bullets = []
 
         self.enemy_bullets = []
         self.camera_x = 0
@@ -150,6 +159,12 @@ class DarkKnightGame(Widget):
     # =============================================================
     # DEFINISI DUNIA / RUANGAN
     # =============================================================
+    ENEMY_DIMS = {
+        "crawler": (32, 24),
+        "flyer": (28, 20),
+        "spitter": (36, 36),
+    }
+
     def _build_rooms(self):
         rooms = {
             "gerbang": {
@@ -259,7 +274,7 @@ class DarkKnightGame(Widget):
                 "enemies": [],
                 "bench": None,
                 "boss": True,
-},
+            },
         }
 
         for room in rooms.values():
@@ -267,6 +282,8 @@ class DarkKnightGame(Widget):
                 e["x"] = e["base_x"]
                 if "base_y" not in e:
                     e["base_y"] = e["y"]
+                dims = self.ENEMY_DIMS.get(e["kind"], (30, 26))
+                e["w"], e["h"] = dims
 
         return rooms
 
@@ -291,15 +308,18 @@ class DarkKnightGame(Widget):
     # UI (tombol pil)
     # =============================================================
     def _build_ui(self):
-        self.left_button = PillButton(text="<", font_size=26, size_hint=(None, None), size=(85, 85))
-        self.right_button = PillButton(text=">", font_size=26, size_hint=(None, None), size=(85, 85))
-        self.jump_button = PillButton(text="JUMP", font_size=15, size_hint=(None, None), size=(110, 85))
-        self.attack_button = PillButton(text="ATTACK", font_size=14, size_hint=(None, None), size=(120, 85))
-        self.dash_button = PillButton(text="DASH", font_size=15, size_hint=(None, None), size=(110, 85))
-        self.map_button = PillButton(text="MAP", font_size=14, size_hint=(None, None), size=(90, 55))
+        self.left_button = PillButton(text="<", font_size=34, size_hint=(None, None), size=(110, 110))
+        self.right_button = PillButton(text=">", font_size=34, size_hint=(None, None), size=(110, 110))
+        self.jump_button = PillButton(text="JUMP", font_size=17, size_hint=(None, None), size=(120, 95))
+        self.dash_button = PillButton(text="DASH", font_size=17, size_hint=(None, None), size=(120, 95))
+        self.melee_button = PillButton(text="PEDANG", font_size=16,
+                                        fill=(0.35, 0.1, 0.1, 0.82), size_hint=(None, None), size=(140, 95))
+        self.gun_button = PillButton(text="PISTOL", font_size=16,
+                                      fill=(0.1, 0.2, 0.35, 0.82), size_hint=(None, None), size=(140, 95))
+        self.map_button = PillButton(text="MAP", font_size=15, size_hint=(None, None), size=(100, 60))
 
-        for b in (self.left_button, self.right_button, self.jump_button,
-                  self.attack_button, self.dash_button, self.map_button):
+        for b in (self.left_button, self.right_button, self.jump_button, self.dash_button,
+                  self.melee_button, self.gun_button, self.map_button):
             self.add_widget(b)
 
         self.left_button.on_press(lambda: self.set_left(True))
@@ -307,8 +327,9 @@ class DarkKnightGame(Widget):
         self.right_button.on_press(lambda: self.set_right(True))
         self.right_button.on_release_cb(lambda: self.set_right(False))
         self.jump_button.on_press(self.jump)
-        self.attack_button.on_press(self.attack)
         self.dash_button.on_press(self.dash)
+        self.melee_button.on_press(self.melee_attack)
+        self.gun_button.on_press(self.ranged_attack)
         self.map_button.on_press(self.toggle_map)
 
         # Panel label ruangan
@@ -366,7 +387,9 @@ class DarkKnightGame(Widget):
         elif key in ("spacebar", "up", "w"):
             self.jump()
         elif key in ("x", "j", "enter"):
-            self.attack()
+            self.melee_attack()
+        elif key in ("c", "v"):
+            self.ranged_attack()
         elif key in ("shift", "z", "k"):
             self.dash()
         elif key == "m":
@@ -401,17 +424,55 @@ class DarkKnightGame(Widget):
             self.player_vy = self.JUMP_POWER
             self.is_grounded = False
 
-    def attack(self):
+    def melee_attack(self):
         if self.game_over or self.victory or self.map_open:
             return
-        if self.attack_cooldown > 0 or self.is_dashing:
+        if self.melee_cooldown > 0 or self.is_dashing:
             return
-        self.attack_cooldown = self.ATTACK_COOLDOWN
-        self.attack_anim = 0.22
-        self.player_attacks.append({
-            "x": self.player_x + (55 if self.facing > 0 else -25),
-            "y": self.player_y + 45,
-            "vx": 900 * self.facing
+        self.melee_cooldown = self.MELEE_COOLDOWN
+        self.melee_anim = 0.18
+        self._do_melee_hit()
+
+    def _do_melee_hit(self):
+        room = self.rooms[self.current_room]
+
+        if self.facing > 0:
+            hit_x1 = self.player_x + 30
+            hit_x2 = self.player_x + 30 + self.MELEE_RANGE
+        else:
+            hit_x1 = self.player_x - self.MELEE_RANGE
+            hit_x2 = self.player_x + 30
+        hit_y1 = self.player_y
+        hit_y2 = self.player_y + 90
+
+        for e in room["enemies"]:
+            if not e["alive"]:
+                continue
+            ew, eh = e["w"], e["h"]
+            ex1, ex2 = e["x"] - ew / 2, e["x"] + ew / 2
+            ey1, ey2 = e["y"], e["y"] + eh
+            if hit_x1 < ex2 and hit_x2 > ex1 and hit_y1 < ey2 and hit_y2 > ey1:
+                e["hp"] -= 1
+                if e["hp"] <= 0:
+                    e["alive"] = False
+
+        if self.current_room == "arena_bos" and self.boss_hp > 0:
+            bx1, bx2 = self.boss_x, self.boss_x + 100
+            by1, by2 = self.boss_y, self.boss_y + 140
+            if hit_x1 < bx2 and hit_x2 > bx1 and hit_y1 < by2 and hit_y2 > by1:
+                self.boss_hp = max(0, self.boss_hp - 10)
+
+    def ranged_attack(self):
+        if self.game_over or self.victory or self.map_open:
+            return
+        if self.gun_cooldown > 0 or self.is_dashing:
+            return
+        self.gun_cooldown = self.GUN_COOLDOWN
+        self.gun_flash = 0.08
+        self.player_bullets.append({
+            "x": self.player_x + (60 if self.facing > 0 else -10),
+            "y": self.player_y + 50,
+            "vx": self.GUN_SPEED * self.facing
         })
 
     def dash(self):
@@ -480,7 +541,7 @@ class DarkKnightGame(Widget):
 
         self._update_player(dt)
         self._update_camera()
-        self._update_player_attacks(dt)
+        self._update_player_bullets(dt)
         self._update_enemies(dt)
         self._update_enemy_bullets(dt)
         self._check_doors()
@@ -508,10 +569,14 @@ class DarkKnightGame(Widget):
     def _update_player(self, dt):
         room = self.rooms[self.current_room]
 
-        if self.attack_cooldown > 0:
-            self.attack_cooldown -= dt
-        if self.attack_anim > 0:
-            self.attack_anim -= dt
+        if self.melee_cooldown > 0:
+            self.melee_cooldown -= dt
+        if self.melee_anim > 0:
+            self.melee_anim -= dt
+        if self.gun_cooldown > 0:
+            self.gun_cooldown -= dt
+        if self.gun_flash > 0:
+            self.gun_flash -= dt
         if self.dash_cooldown > 0:
             self.dash_cooldown -= dt
         if self.invuln_timer > 0:
@@ -572,7 +637,7 @@ class DarkKnightGame(Widget):
 
         if self.is_dashing:
             self.state = "dash"
-        elif self.attack_anim > 0:
+        elif self.melee_anim > 0:
             self.state = "attack"
         elif not self.is_grounded:
             self.state = "jump"
@@ -642,29 +707,38 @@ class DarkKnightGame(Widget):
             self.respawn_y = self.FLOOR_Y
 
     # ---------------------------------------------------------
-    def _update_player_attacks(self, dt):
+    def _update_player_bullets(self, dt):
         room = self.rooms[self.current_room]
-        for atk in self.player_attacks[:]:
+        r = self.BULLET_RADIUS
+
+        for atk in self.player_bullets[:]:
             atk["x"] += atk["vx"] * dt
+            bx, by = atk["x"], atk["y"]
             hit = False
 
             for e in room["enemies"]:
-                if e["alive"] and abs(atk["x"] - e["x"]) < 34 and abs(atk["y"] - (e["y"] + 20)) < 40:
+                if not e["alive"]:
+                    continue
+                ew, eh = e["w"], e["h"]
+                ex1, ex2 = e["x"] - ew / 2, e["x"] + ew / 2
+                ey1, ey2 = e["y"], e["y"] + eh
+                if bx + r > ex1 and bx - r < ex2 and by + r > ey1 and by - r < ey2:
                     e["hp"] -= 1
                     if e["hp"] <= 0:
                         e["alive"] = False
                     hit = True
                     break
 
-            if self.current_room == "arena_bos" and self.boss_hp > 0:
-                if (abs(atk["x"] - (self.boss_x + 50)) < 60
-                        and atk["y"] > self.boss_y and atk["y"] < self.boss_y + 160):
+            if not hit and self.current_room == "arena_bos" and self.boss_hp > 0:
+                bx1, bx2 = self.boss_x, self.boss_x + 100
+                by1, by2 = self.boss_y, self.boss_y + 140
+                if bx + r > bx1 and bx - r < bx2 and by + r > by1 and by - r < by2:
                     self.boss_hp = max(0, self.boss_hp - 6)
                     hit = True
 
-            if hit or atk["x"] < self.camera_x - 100 or atk["x"] > self.camera_x + self.width + 100:
-                if atk in self.player_attacks:
-                    self.player_attacks.remove(atk)
+            if hit or bx < self.camera_x - 100 or bx > self.camera_x + self.width + 100:
+                if atk in self.player_bullets:
+                    self.player_bullets.remove(atk)
 
     # ---------------------------------------------------------
     # MUSUH KECIL (crawler / flyer / spitter)
@@ -870,7 +944,7 @@ class DarkKnightGame(Widget):
 
                 self._draw_player_trail()
                 self._draw_player()
-                self._draw_player_attacks()
+                self._draw_player_bullets()
                 self._draw_ui()
             else:
                 self._draw_map()
@@ -1050,42 +1124,65 @@ class DarkKnightGame(Widget):
         walk_cycle = math.sin(self.anim_timer * 10) if self.state == "run" else 0
         idle_bounce = math.sin(self.anim_timer * 3) * 2 if self.state == "idle" else 0
 
-        cape_sway = -facing * (10 + 6 * math.sin(self.anim_timer * 4))
-        Color(0.05, 0.05, 0.08, 1)
-        Triangle(points=[x + 30, y + 70, x + 30 + cape_sway, y + 10, x + 45, y + 60])
+        # Jubah robek berjumbai (beberapa lapis, meniru kain sobek)
+        cape_sway = -facing * (14 + 8 * math.sin(self.anim_timer * 4))
+        Color(0.04, 0.04, 0.06, 1)
+        Triangle(points=[x + 20, y + 65, x + 14 + cape_sway * 0.6, y + 20, x + 32, y + 45])
+        Triangle(points=[x + 28, y + 72, x + 26 + cape_sway * 0.85, y + 28, x + 40, y + 55])
+        Triangle(points=[x + 34, y + 70, x + 32 + cape_sway, y + 5, x + 46, y + 50])
 
-        Color(0.08, 0.08, 0.1, 1)
+        # Kaki
+        Color(0.06, 0.06, 0.08, 1)
         leg_off = walk_cycle * 10
         RoundedRectangle(pos=(x + 12, y - 2 + max(0, leg_off)), size=(14, 30), radius=[4])
         RoundedRectangle(pos=(x + 34, y - 2 + max(0, -leg_off)), size=(14, 30), radius=[4])
 
-        Color(0.1, 0.1, 0.13, 1)
-        RoundedRectangle(pos=(x, y + 20 + idle_bounce), size=(60, 55), radius=[10])
+        # Badan zirah gelap
+        Color(0.08, 0.08, 0.11, 1)
+        RoundedRectangle(pos=(x, y + 20 + idle_bounce), size=(60, 55), radius=[8])
 
-        mask_color = (0.85, 0.9, 1, 1) if not self.is_dashing else (0.5, 0.85, 1, 1)
-        Color(*mask_color)
-        RoundedRectangle(pos=(x + 8, y + 65 + idle_bounce), size=(44, 34), radius=[10])
+        # Bahu berlapis baja (pauldron)
+        Color(0.15, 0.14, 0.17, 1)
+        Triangle(points=[x - 8, y + 66 + idle_bounce, x + 16, y + 80 + idle_bounce, x + 6, y + 53 + idle_bounce])
+        Triangle(points=[x + 44, y + 66 + idle_bounce, x + 68, y + 80 + idle_bounce, x + 54, y + 53 + idle_bounce])
 
-        Color(*mask_color)
-        Triangle(points=[x + 10, y + 95 + idle_bounce, x + 18, y + 95 + idle_bounce, x + 12, y + 110 + idle_bounce])
-        Triangle(points=[x + 50, y + 95 + idle_bounce, x + 42, y + 95 + idle_bounce, x + 48, y + 110 + idle_bounce])
+        # Tudung penuh menutupi kepala (tanpa wajah terlihat)
+        hood_color = (0.07, 0.07, 0.1, 1) if not self.is_dashing else (0.08, 0.22, 0.32, 1)
+        Color(*hood_color)
+        RoundedRectangle(pos=(x + 6, y + 62 + idle_bounce), size=(48, 30), radius=[16])
+        Triangle(points=[x + 12, y + 90 + idle_bounce, x + 48, y + 90 + idle_bounce, x + 30, y + 120 + idle_bounce])
 
-        eye_color = (1, 0.6, 0.15, 1) if self.attack_anim > 0 else (0.1, 0.6, 1, 1)
+        # Mata menyala samar dalam bayangan tudung
+        eye_color = (1, 0.55, 0.15, 0.9) if self.melee_anim > 0 else (0.3, 0.75, 1, 0.85)
         Color(*eye_color)
-        eye_x = x + 28 if facing > 0 else x + 14
-        Ellipse(pos=(eye_x, y + 78 + idle_bounce), size=(9, 9))
+        eye_x = x + 27 if facing > 0 else x + 15
+        Ellipse(pos=(eye_x, y + 79 + idle_bounce), size=(7, 5))
 
-        if self.attack_anim > 0:
-            progress = 1 - (self.attack_anim / 0.22)
-            reach = 20 + progress * 45
-            Color(0.6, 0.95, 1, 0.85)
-            Line(points=[x + 30 + facing * 20, y + 55, x + 30 + facing * reach, y + 40 + progress * 30], width=4)
+        # --- Senjata ---
+        if self.melee_anim > 0:
+            progress = 1 - (self.melee_anim / 0.18)
+            reach = 25 + progress * 50
+            Color(0.75, 0.8, 0.85, 0.95)
+            Line(points=[x + 30 + facing * 15, y + 55,
+                         x + 30 + facing * reach, y + 35 + progress * 35], width=5)
+            Color(0.3, 0.22, 0.15, 1)
+            Ellipse(pos=(x + 30 + facing * 12 - 5, y + 50), size=(10, 10))
+        else:
+            gx = x + 40 if facing > 0 else x - 8
+            Color(0.15, 0.15, 0.17, 1)
+            Rectangle(pos=(gx, y + 45), size=(16, 8))
 
-    def _draw_player_attacks(self):
-        Color(0.4, 0.9, 1, 1)
-        for atk in self.player_attacks:
+            if self.gun_flash > 0:
+                flash_x = gx + (16 if facing > 0 else 0)
+                Color(1, 0.85, 0.3, 0.9)
+                Triangle(points=[flash_x, y + 49, flash_x + 14 * facing, y + 55, flash_x + 14 * facing, y + 43])
+
+    def _draw_player_bullets(self):
+        Color(1, 0.9, 0.4, 1)
+        r = self.BULLET_RADIUS
+        for atk in self.player_bullets:
             x = self.w2s(atk["x"])
-            Ellipse(pos=(x, atk["y"]), size=(22, 22))
+            Ellipse(pos=(x - r, atk["y"] - r), size=(r * 2, r * 2))
 
     def _draw_ui(self):
         # Pip HP (mask) di kiri atas
@@ -1144,11 +1241,19 @@ class DarkKnightGame(Widget):
 
     def _layout_ui(self):
         self.left_button.pos = (20, 20)
-        self.right_button.pos = (120, 20)
-        self.jump_button.pos = (self.width - 400, 20)
-        self.attack_button.pos = (self.width - 270, 20)
-        self.dash_button.pos = (self.width - 130, 20)
-        self.map_button.pos = (self.width - 110, self.height - 70)
+        self.right_button.pos = (145, 20)
+
+        gap = 15
+        row_gap = 12
+        bottom_y = 20
+        top_y = bottom_y + 95 + row_gap
+
+        self.gun_button.pos = (self.width - self.gun_button.width - 20, bottom_y)
+        self.melee_button.pos = (self.gun_button.x - gap - self.melee_button.width, bottom_y)
+        self.dash_button.pos = (self.width - self.dash_button.width - 20, top_y)
+        self.jump_button.pos = (self.dash_button.x - gap - self.jump_button.width, top_y)
+
+        self.map_button.pos = (self.width - self.map_button.width - 20, self.height - 70)
 
         self.room_label.pos = (self.width / 2 - 200, self.height - 34)
         self.notice_label.pos = (self.width / 2 - 250, self.height - 100)
