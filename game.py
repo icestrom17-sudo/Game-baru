@@ -1,4 +1,3 @@
-cat > game.py << 'PYEOF'
 from kivy.uix.widget import Widget
 from kivy.uix.button import Button
 from kivy.uix.label import Label
@@ -694,4 +693,3 @@ class DarkKnightGame(Widget):
 
         if hasattr(self, "status_label"):
             self.status_label.center = self.center
-PYEOF
