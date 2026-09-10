@@ -151,7 +151,7 @@ class DarkKnightGame(Widget):
     # DEFINISI DUNIA / RUANGAN
     # =============================================================
     def _build_rooms(self):
-        return {
+        rooms = {
             "gerbang": {
                 "name": "Gerbang Reruntuhan",
                 "w": 1500,
@@ -259,8 +259,16 @@ class DarkKnightGame(Widget):
                 "enemies": [],
                 "bench": None,
                 "boss": True,
-            },
+},
         }
+
+        for room in rooms.values():
+            for e in room["enemies"]:
+                e["x"] = e["base_x"]
+                if "base_y" not in e:
+                    e["base_y"] = e["y"]
+
+        return rooms
 
     def _reset_boss(self):
         room = self.rooms["arena_bos"]
