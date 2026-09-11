@@ -95,7 +95,8 @@ class DarkKnightGame(Widget):
     LASER_ACTIVE_TIME = 0.45
     SWORD_TELEGRAPH_TIME = 0.55
     SWORD_ACTIVE_TIME = 0.25
-    STUCK_CHANCE = 0.45
+    STUCK_CHANCE = 0.55
+    MAX_SWINGS_BEFORE_STUCK = 2
     VULNERABLE_DURATION = 10.0
     BOSS_WALK_SPEED = 220
     BOSS_MAX_HP = 220
@@ -311,6 +312,7 @@ class DarkKnightGame(Widget):
         self.sword_target_x = self.player_x
         self.sword_stuck_x = None
         self.boss_pulling = False
+        self.swing_count = 0
 
     # =============================================================
     # UI (tombol pil)
@@ -827,7 +829,8 @@ class DarkKnightGame(Widget):
             if self._player_in_sword_column():
                 self._damage_player(1)
             if self.boss_timer <= 0:
-                if random.random() < self.STUCK_CHANCE:
+                self.swing_count += 1
+                if random.random() < self.STUCK_CHANCE or self.swing_count >= self.MAX_SWINGS_BEFORE_STUCK:
                     self._trigger_sword_stuck()
                 else:
                     self._end_attack()
@@ -861,6 +864,7 @@ class DarkKnightGame(Widget):
         self.boss_state = "vulnerable"
         self.boss_timer = self.VULNERABLE_DURATION
         self.boss_pulling = False
+        self.swing_count = 0
 
     def _update_vulnerable(self, dt):
         dx = self.sword_stuck_x - self.boss_x
@@ -1008,10 +1012,28 @@ class DarkKnightGame(Widget):
 
     def _draw_throne(self, room):
         x = self.w2s(self.boss_home_x)
-        Color(0.12, 0.1, 0.14, 1)
+
+        # Latar lengkungan batu di belakang singgasana (kedalaman "duduk di belakang")
+        Color(0.07, 0.06, 0.09, 1)
+        RoundedRectangle(pos=(x - 60, self.FLOOR_Y + 10), size=(220, 340),
+                          radius=[0, 0, 100, 100])
+        Color(0.1, 0.08, 0.13, 1)
+        RoundedRectangle(pos=(x - 40, self.FLOOR_Y + 20), size=(180, 300),
+                          radius=[0, 0, 90, 90])
+
+        # Dudukan singgasana
+        Color(0.13, 0.11, 0.15, 1)
         Rectangle(pos=(x - 20, self.FLOOR_Y), size=(140, 20))
+
+        # Sandaran tinggi
         Color(0.1, 0.08, 0.12, 1)
         RoundedRectangle(pos=(x - 10, self.FLOOR_Y + 20), size=(120, 170), radius=[10])
+
+        # Sandaran tangan kiri/kanan
+        Color(0.12, 0.1, 0.14, 1)
+        Rectangle(pos=(x - 28, self.FLOOR_Y + 18), size=(18, 55))
+        Rectangle(pos=(x + 110, self.FLOOR_Y + 18), size=(18, 55))
+
         Color(0.22, 0.2, 0.24, 1)
         for i in range(5):
             sx = x - 10 + i * 24
@@ -1033,33 +1055,67 @@ class DarkKnightGame(Widget):
                 Ellipse(pos=(px, py), size=(10, 10))
 
         elif self.boss_state == "sword_telegraph":
+            # Garis diagonal merah (arah ayunan) - beda gaya dari laser horizontal
             x = self.w2s(self.sword_target_x)
-            alpha = 0.2 + 0.3 * self.boss_flash
+            alpha = 0.35 + 0.4 * self.boss_flash
             Color(1, 0.2, 0.2, alpha)
-            Rectangle(pos=(x - 65, 0), size=(130, self.height))
+            Line(points=[x - 90, self.height, x + 40, self.FLOOR_Y], width=6)
+            Line(points=[x - 40, self.height, x + 90, self.FLOOR_Y], width=6)
+            Color(1, 0.3, 0.2, alpha * 0.7)
+            Ellipse(pos=(x - 12, self.FLOOR_Y - 12), size=(24, 24))
 
         elif self.boss_state == "sword_active":
+            # Tebasan pedang diagonal (bilah putih terang), bukan kotak lurus
             x = self.w2s(self.sword_target_x)
-            Color(0.85, 0.85, 1, 0.8)
-            Rectangle(pos=(x - 65, 0), size=(130, self.height))
+            Color(0.9, 0.95, 1, 0.95)
+            Line(points=[x - 90, self.height, x + 40, self.FLOOR_Y], width=10)
+            Color(0.6, 0.85, 1, 0.6)
+            Line(points=[x - 40, self.height, x + 90, self.FLOOR_Y], width=14)
+            # Percikan benturan di tanah
+            Color(1, 0.9, 0.6, 0.9)
+            for i in range(6):
+                ang = i / 6 * math.pi
+                ex = x + math.cos(ang) * 30
+                ey = self.FLOOR_Y + math.sin(ang) * 20
+                Ellipse(pos=(ex - 3, ey - 3), size=(6, 6))
 
         if self.sword_stuck_x is not None:
             sx = self.w2s(self.sword_stuck_x)
-            wiggle = 3 * math.sin(self.anim_timer * 25) if self.boss_pulling else 0
-            Color(0.75, 0.78, 0.85, 1)
-            Line(points=[sx + wiggle, self.FLOOR_Y, sx + 8 + wiggle, self.FLOOR_Y + 110], width=6)
-            Color(0.5, 0.4, 0.2, 1)
-            Rectangle(pos=(sx - 14 + wiggle, self.FLOOR_Y + 95), size=(30, 10))
+            wiggle = 4 * math.sin(self.anim_timer * 25) if self.boss_pulling else 0
+
+            # Aura cahaya biar jelas kelihatan
+            glow = 0.4 + 0.3 * math.sin(self.anim_timer * 3)
+            Color(0.6, 0.85, 1, glow * 0.5)
+            Ellipse(pos=(sx - 30, self.FLOOR_Y - 10), size=(60, 40))
+
+            # Retakan tanah
+            Color(0.3, 0.28, 0.32, 1)
+            Line(points=[sx - 24, self.FLOOR_Y, sx - 8, self.FLOOR_Y + 6], width=3)
+            Line(points=[sx + 24, self.FLOOR_Y, sx + 10, self.FLOOR_Y + 5], width=3)
+
+            # Bilah pedang tertancap (lebih besar & terang)
+            Color(0.85, 0.9, 1, 1)
+            Line(points=[sx + wiggle, self.FLOOR_Y, sx + 10 + wiggle, self.FLOOR_Y + 140], width=9)
+            Color(1, 1, 1, 0.8)
+            Line(points=[sx + wiggle, self.FLOOR_Y + 10, sx + 8 + wiggle, self.FLOOR_Y + 135], width=3)
+
+            # Gagang pedang (cross-guard)
+            Color(0.6, 0.45, 0.15, 1)
+            Rectangle(pos=(sx - 18 + wiggle, self.FLOOR_Y + 118), size=(36, 12))
+            Ellipse(pos=(sx - 6 + wiggle, self.FLOOR_Y + 128), size=(20, 20))
 
     def _draw_boss(self):
         if self.boss_hp <= 0:
             return
 
         x = self.w2s(self.boss_x)
-        y = self.boss_y
         telegraphing = self.boss_state in ("laser_telegraph", "sword_telegraph")
         outline_alpha = self.boss_flash if telegraphing else 0
         vulnerable = self.boss_state == "vulnerable"
+
+        # Duduk di kursi = badan naik sedikit ke atas dudukan; berdiri saat vulnerable
+        seat_offset = 0 if vulnerable else 18
+        y = self.boss_y + seat_offset
 
         # Jubah ungu compang-camping
         Color(0.22, 0.06, 0.28, 1)
