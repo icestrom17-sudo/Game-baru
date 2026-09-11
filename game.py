@@ -90,6 +90,15 @@ class DarkKnightGame(Widget):
     GUN_COOLDOWN = 0.42
     GUN_SPEED = 1150
     BULLET_RADIUS = 7
+
+    LASER_TELEGRAPH_TIME = 0.7
+    LASER_ACTIVE_TIME = 0.45
+    SWORD_TELEGRAPH_TIME = 0.55
+    SWORD_ACTIVE_TIME = 0.25
+    STUCK_CHANCE = 0.45
+    VULNERABLE_DURATION = 10.0
+    BOSS_WALK_SPEED = 220
+    BOSS_MAX_HP = 220
     INVULN_TIME = 1.0
     FLOOR_Y = 80
     MAX_MASKS = 5
@@ -289,20 +298,19 @@ class DarkKnightGame(Widget):
 
     def _reset_boss(self):
         room = self.rooms["arena_bos"]
-        self.boss_home_x = room["w"] - 260
+        self.boss_home_x = room["w"] - 220
         self.boss_x = self.boss_home_x
         self.boss_y = self.FLOOR_Y
-        self.boss_hp = 300
-        self.boss_max_hp = 300
-        self.boss_bullets = []
-        self.boss_hazards = []
+        self.boss_hp = self.BOSS_MAX_HP
+        self.boss_max_hp = self.BOSS_MAX_HP
         self.boss_state = "cooldown"
-        self.boss_timer = 1.2
+        self.boss_timer = 1.4
         self.boss_glow = 0
         self.boss_flash = 0
-        self.boss_dash_vx = 0
         self.current_attack = None
-        self.pending_slam_x = 0
+        self.sword_target_x = self.player_x
+        self.sword_stuck_x = None
+        self.boss_pulling = False
 
     # =============================================================
     # UI (tombol pil)
@@ -456,7 +464,8 @@ class DarkKnightGame(Widget):
                 if e["hp"] <= 0:
                     e["alive"] = False
 
-        if self.current_room == "arena_bos" and self.boss_hp > 0:
+        if (self.current_room == "arena_bos" and self.boss_hp > 0
+                and self.boss_state == "vulnerable"):
             bx1, bx2 = self.boss_x, self.boss_x + 100
             by1, by2 = self.boss_y, self.boss_y + 140
             if hit_x1 < bx2 and hit_x2 > bx1 and hit_y1 < by2 and hit_y2 > by1:
@@ -549,8 +558,6 @@ class DarkKnightGame(Widget):
 
         if self.current_room == "arena_bos":
             self._update_boss(dt)
-            self._update_boss_bullets(dt)
-            self._update_boss_hazards(dt)
 
         if self.masks <= 0 and not self.game_over:
             self.game_over = True
@@ -647,10 +654,6 @@ class DarkKnightGame(Widget):
             self.state = "idle"
 
         if self.invuln_timer <= 0:
-            for b in self.boss_bullets[:]:
-                if self._hit_player(b["x"], b["y"], 14):
-                    self.boss_bullets.remove(b)
-                    self._damage_player(1)
             for b in self.enemy_bullets[:]:
                 if self._hit_player(b["x"], b["y"], 10):
                     self.enemy_bullets.remove(b)
@@ -729,7 +732,8 @@ class DarkKnightGame(Widget):
                     hit = True
                     break
 
-            if not hit and self.current_room == "arena_bos" and self.boss_hp > 0:
+            if (not hit and self.current_room == "arena_bos" and self.boss_hp > 0
+                    and self.boss_state == "vulnerable"):
                 bx1, bx2 = self.boss_x, self.boss_x + 100
                 by1, by2 = self.boss_y, self.boss_y + 140
                 if bx + r > bx1 and bx - r < bx2 and by + r > by1 and by - r < by2:
@@ -787,16 +791,8 @@ class DarkKnightGame(Widget):
                 self.enemy_bullets.remove(b)
 
     # ---------------------------------------------------------
-    # BOSS - AKAR IBLIS (gaya Cuphead, tema sayuran bawah tanah)
+    # BOSS - RAJA TENGKORAK (laser + tebasan pedang + jendela lemah)
     # ---------------------------------------------------------
-    def _boss_phase(self):
-        frac = self.boss_hp / self.boss_max_hp
-        if frac > 0.66:
-            return 1
-        elif frac > 0.33:
-            return 2
-        return 3
-
     def _update_boss(self, dt):
         if self.boss_hp <= 0:
             self.boss_state = "dead"
@@ -809,112 +805,80 @@ class DarkKnightGame(Widget):
             if self.boss_timer <= 0:
                 self._start_next_attack()
 
-        elif self.boss_state == "telegraph":
-            self.boss_flash = (math.sin(self.anim_timer * 20) + 1) / 2
+        elif self.boss_state == "laser_telegraph":
+            self.boss_flash = (math.sin(self.anim_timer * 18) + 1) / 2
             if self.boss_timer <= 0:
-                self._execute_attack()
+                self.boss_state = "laser_active"
+                self.boss_timer = self.LASER_ACTIVE_TIME
 
-        elif self.boss_state == "charging":
-            self.boss_x += self.boss_dash_vx * dt
-            if self._hit_player(self.boss_x + 50, self.boss_y + 70, 60):
+        elif self.boss_state == "laser_active":
+            if self._player_in_laser_band() and self.is_grounded:
                 self._damage_player(1)
             if self.boss_timer <= 0:
-                self.boss_state = "returning"
-                self.boss_timer = 0.6
-
-        elif self.boss_state == "returning":
-            dx = self.boss_home_x - self.boss_x
-            self.boss_x += dx * 6 * dt
-            if abs(dx) < 4 or self.boss_timer <= 0:
-                self.boss_x = self.boss_home_x
                 self._end_attack()
 
-        elif self.boss_state == "attacking":
+        elif self.boss_state == "sword_telegraph":
+            self.boss_flash = (math.sin(self.anim_timer * 18) + 1) / 2
             if self.boss_timer <= 0:
-                self._end_attack()
+                self.boss_state = "sword_active"
+                self.boss_timer = self.SWORD_ACTIVE_TIME
+
+        elif self.boss_state == "sword_active":
+            if self._player_in_sword_column():
+                self._damage_player(1)
+            if self.boss_timer <= 0:
+                if random.random() < self.STUCK_CHANCE:
+                    self._trigger_sword_stuck()
+                else:
+                    self._end_attack()
+
+        elif self.boss_state == "vulnerable":
+            self._update_vulnerable(dt)
+
+    def _player_in_laser_band(self):
+        band_bottom = self.FLOOR_Y - 10
+        band_top = self.FLOOR_Y + 100
+        return self.player_y < band_top and (self.player_y + 90) > band_bottom
+
+    def _player_in_sword_column(self):
+        half = 65
+        x1, x2 = self.sword_target_x - half, self.sword_target_x + half
+        return (self.player_x + 60) > x1 and self.player_x < x2
 
     def _start_next_attack(self):
-        phase = self._boss_phase()
-        options = ["spread", "aimed"]
-        if phase >= 2:
-            options.append("slam")
-        if phase >= 3:
-            options.append("charge")
+        self.current_attack = random.choice(["laser", "sword"])
+        if self.current_attack == "laser":
+            self.boss_state = "laser_telegraph"
+            self.boss_timer = self.LASER_TELEGRAPH_TIME
+        else:
+            self.sword_target_x = self.player_x
+            self.boss_state = "sword_telegraph"
+            self.boss_timer = self.SWORD_TELEGRAPH_TIME
 
-        self.current_attack = random.choice(options)
-        self.boss_state = "telegraph"
-        self.boss_timer = 0.6 if phase < 3 else 0.4
+    def _trigger_sword_stuck(self):
+        room = self.rooms["arena_bos"]
+        self.sword_stuck_x = random.uniform(room["w"] * 0.3, room["w"] * 0.6)
+        self.boss_state = "vulnerable"
+        self.boss_timer = self.VULNERABLE_DURATION
+        self.boss_pulling = False
 
-        if self.current_attack == "slam":
-            self.pending_slam_x = self.player_x
-            self.boss_hazards.append({
-                "type": "slam", "x": self.pending_slam_x,
-                "radius": 0, "max_radius": 140,
-                "timer": self.boss_timer, "dur": self.boss_timer
-            })
-        elif self.current_attack == "charge":
-            self.boss_hazards.append({
-                "type": "charge_line", "y": self.boss_y,
-                "timer": self.boss_timer, "dur": self.boss_timer
-            })
+    def _update_vulnerable(self, dt):
+        dx = self.sword_stuck_x - self.boss_x
+        if abs(dx) > 6 and not self.boss_pulling:
+            step = min(abs(dx), self.BOSS_WALK_SPEED * dt)
+            self.boss_x += step * (1 if dx > 0 else -1)
+        else:
+            self.boss_pulling = True
 
-    def _execute_attack(self):
-        if self.current_attack == "spread":
-            dx = self.player_x - self.boss_x
-            dy = self.player_y - self.boss_y
-            base_angle = math.atan2(dy, dx)
-            for off in (-0.35, 0, 0.35):
-                ang = base_angle + off
-                self.boss_bullets.append({
-                    "x": self.boss_x + 20, "y": self.boss_y + 90,
-                    "vx": math.cos(ang) * 400, "vy": math.sin(ang) * 400
-                })
-            self.boss_state = "attacking"
-            self.boss_timer = 0.3
-
-        elif self.current_attack == "aimed":
-            dx = self.player_x - self.boss_x
-            dy = self.player_y - self.boss_y
-            dist = max(1, math.hypot(dx, dy))
-            self.boss_bullets.append({
-                "x": self.boss_x + 20, "y": self.boss_y + 90,
-                "vx": dx / dist * 480, "vy": dy / dist * 480
-            })
-            self.boss_state = "attacking"
-            self.boss_timer = 0.3
-
-        elif self.current_attack == "slam":
-            self.boss_state = "attacking"
-            self.boss_timer = 0.15
-            if abs(self.player_x - self.pending_slam_x) < 130 and self.is_grounded:
-                self._damage_player(1)
-
-        elif self.current_attack == "charge":
-            self.boss_dash_vx = 1300 * (-1 if self.boss_x > self.player_x else 1)
-            self.boss_state = "charging"
-            self.boss_timer = 0.5
+        if self.boss_timer <= 0:
+            self.boss_x = self.boss_home_x
+            self.boss_pulling = False
+            self.sword_stuck_x = None
+            self._end_attack()
 
     def _end_attack(self):
-        phase = self._boss_phase()
         self.boss_state = "cooldown"
-        self.boss_timer = random.uniform(1.4, 2.2) if phase < 3 else random.uniform(0.8, 1.3)
-
-    def _update_boss_bullets(self, dt):
-        for b in self.boss_bullets[:]:
-            b["x"] += b["vx"] * dt
-            b["y"] += b["vy"] * dt
-            if (b["x"] < self.camera_x - 150 or b["x"] > self.camera_x + self.width + 150
-                    or b["y"] < -50 or b["y"] > 1200):
-                self.boss_bullets.remove(b)
-
-    def _update_boss_hazards(self, dt):
-        for hz in self.boss_hazards[:]:
-            hz["timer"] -= dt
-            if hz["type"] == "slam":
-                progress = 1 - max(0, hz["timer"]) / hz["dur"]
-                hz["radius"] = hz["max_radius"] * progress
-            if hz["timer"] <= -0.3:
-                self.boss_hazards.remove(hz)
+        self.boss_timer = random.uniform(1.0, 1.6)
 
     # =============================================================
     # GAMBAR
@@ -938,9 +902,9 @@ class DarkKnightGame(Widget):
                 self._draw_enemy_bullets()
 
                 if self.current_room == "arena_bos":
-                    self._draw_hazards()
+                    self._draw_throne(room)
+                    self._draw_boss_attacks()
                     self._draw_boss()
-                    self._draw_boss_bullets()
 
                 self._draw_player_trail()
                 self._draw_player()
@@ -1042,16 +1006,50 @@ class DarkKnightGame(Widget):
             x = self.w2s(b["x"])
             Ellipse(pos=(x - 7, b["y"] - 7), size=(14, 14))
 
-    def _draw_hazards(self):
-        for hz in self.boss_hazards:
-            if hz["type"] == "slam":
-                x = self.w2s(hz["x"])
-                Color(1, 0.2, 0.15, 0.55)
-                Line(circle=(x, self.FLOOR_Y, hz["radius"]), width=3)
-            elif hz["type"] == "charge_line":
-                flash = 0.3 + 0.5 * abs(math.sin(self.anim_timer * 25))
-                Color(1, 0.15, 0.15, flash)
-                Rectangle(pos=(0, hz["y"] - 5), size=(self.width, 190))
+    def _draw_throne(self, room):
+        x = self.w2s(self.boss_home_x)
+        Color(0.12, 0.1, 0.14, 1)
+        Rectangle(pos=(x - 20, self.FLOOR_Y), size=(140, 20))
+        Color(0.1, 0.08, 0.12, 1)
+        RoundedRectangle(pos=(x - 10, self.FLOOR_Y + 20), size=(120, 170), radius=[10])
+        Color(0.22, 0.2, 0.24, 1)
+        for i in range(5):
+            sx = x - 10 + i * 24
+            Triangle(points=[sx, self.FLOOR_Y + 190, sx + 16, self.FLOOR_Y + 190, sx + 8, self.FLOOR_Y + 222])
+
+    def _draw_boss_attacks(self):
+        if self.boss_state == "laser_telegraph":
+            alpha = 0.25 + 0.35 * self.boss_flash
+            Color(1, 0.2, 0.2, alpha)
+            Rectangle(pos=(0, self.FLOOR_Y - 10), size=(self.width, 4))
+
+        elif self.boss_state == "laser_active":
+            Color(0.75, 0.25, 1, 0.85)
+            Rectangle(pos=(0, self.FLOOR_Y - 10), size=(self.width, 110))
+            Color(1, 0.9, 1, 0.5)
+            for i in range(8):
+                px = (self.anim_timer * 300 + i * 90) % (self.width + 40) - 20
+                py = self.FLOOR_Y + 30 + 10 * math.sin(self.anim_timer * 6 + i)
+                Ellipse(pos=(px, py), size=(10, 10))
+
+        elif self.boss_state == "sword_telegraph":
+            x = self.w2s(self.sword_target_x)
+            alpha = 0.2 + 0.3 * self.boss_flash
+            Color(1, 0.2, 0.2, alpha)
+            Rectangle(pos=(x - 65, 0), size=(130, self.height))
+
+        elif self.boss_state == "sword_active":
+            x = self.w2s(self.sword_target_x)
+            Color(0.85, 0.85, 1, 0.8)
+            Rectangle(pos=(x - 65, 0), size=(130, self.height))
+
+        if self.sword_stuck_x is not None:
+            sx = self.w2s(self.sword_stuck_x)
+            wiggle = 3 * math.sin(self.anim_timer * 25) if self.boss_pulling else 0
+            Color(0.75, 0.78, 0.85, 1)
+            Line(points=[sx + wiggle, self.FLOOR_Y, sx + 8 + wiggle, self.FLOOR_Y + 110], width=6)
+            Color(0.5, 0.4, 0.2, 1)
+            Rectangle(pos=(sx - 14 + wiggle, self.FLOOR_Y + 95), size=(30, 10))
 
     def _draw_boss(self):
         if self.boss_hp <= 0:
@@ -1059,51 +1057,68 @@ class DarkKnightGame(Widget):
 
         x = self.w2s(self.boss_x)
         y = self.boss_y
+        telegraphing = self.boss_state in ("laser_telegraph", "sword_telegraph")
+        outline_alpha = self.boss_flash if telegraphing else 0
+        vulnerable = self.boss_state == "vulnerable"
 
-        outline_alpha = self.boss_flash if self.boss_state == "telegraph" else 0
-        phase = self._boss_phase()
+        # Jubah ungu compang-camping
+        Color(0.22, 0.06, 0.28, 1)
+        Triangle(points=[x + 8, y + 140, x - 14, y + 35, x + 35, y + 90])
+        Triangle(points=[x + 92, y + 140, x + 116, y + 35, x + 70, y + 90])
 
-        # Badan terong gelap - membulat di bawah, meruncing ke atas
-        body_color = [(0.28, 0.12, 0.32), (0.22, 0.08, 0.3), (0.15, 0.05, 0.22)][phase - 1]
-        Color(*body_color, 1)
-        RoundedRectangle(pos=(x, y), size=(100, 140), radius=[45, 45, 20, 20])
+        # Badan/jubah utama
+        body_color = (0.55, 0.08, 0.6, 1) if vulnerable else (0.13, 0.11, 0.16, 1)
+        Color(*body_color)
+        RoundedRectangle(pos=(x, y), size=(100, 110), radius=[15, 15, 25, 25])
 
-        # Daun / mahkota di atas kepala (seperti terong/cabai)
-        leaf_color = (0.15, 0.4, 0.15, 1)
-        Color(*leaf_color)
-        Triangle(points=[x + 10, y + 138, x + 35, y + 138, x + 20, y + 180])
-        Triangle(points=[x + 40, y + 138, x + 65, y + 138, x + 50, y + 185])
-        Triangle(points=[x + 70, y + 138, x + 92, y + 138, x + 80, y + 178])
+        # Rusuk tulang
+        Color(0.9, 0.88, 0.8, 1)
+        for i in range(4):
+            ry = y + 38 + i * 14
+            Line(points=[x + 20, ry, x + 80, ry], width=3)
 
-        # Inti cabai menyala (titik lemah)
-        glow_size = 42 + 12 * self.boss_glow
-        Color(1, 0.25, 0.15, 0.95)
-        Ellipse(pos=(x + 50 - glow_size / 2, y + 75 - glow_size / 2),
-                size=(glow_size, glow_size))
-        Color(1, 0.7, 0.3, 0.9)
-        Ellipse(pos=(x + 50 - glow_size / 4, y + 75 - glow_size / 4),
-                size=(glow_size / 2, glow_size / 2))
+        # Tengkorak
+        Color(0.92, 0.9, 0.82, 1)
+        Ellipse(pos=(x + 25, y + 108), size=(50, 46))
+        Rectangle(pos=(x + 35, y + 100), size=(30, 14))
 
-        # "Taring" bawang putih kecil
-        Color(0.92, 0.9, 0.85, 1)
-        Triangle(points=[x + 20, y + 40, x + 32, y + 40, x + 24, y + 15])
-        Triangle(points=[x + 68, y + 40, x + 80, y + 40, x + 76, y + 15])
+        # Mata menyala merah
+        eye_glow = 0.6 + 0.4 * self.boss_glow
+        Color(1, 0.15, 0.15, eye_glow)
+        Ellipse(pos=(x + 34, y + 128), size=(10, 10))
+        Ellipse(pos=(x + 56, y + 128), size=(10, 10))
+
+        # Mahkota
+        Color(0.85, 0.7, 0.2, 1)
+        Triangle(points=[x + 28, y + 152, x + 38, y + 152, x + 33, y + 172])
+        Triangle(points=[x + 45, y + 152, x + 55, y + 152, x + 50, y + 178])
+        Triangle(points=[x + 62, y + 152, x + 72, y + 152, x + 67, y + 172])
+        Rectangle(pos=(x + 26, y + 150), size=(48, 8))
+
+        # Pedang digenggam (kalau nggak lagi tertancap di tanah)
+        if self.sword_stuck_x is None:
+            Color(0.8, 0.82, 0.88, 1)
+            Line(points=[x + 95, y + 90, x + 132, y + 50], width=5)
 
         if outline_alpha > 0:
             Color(1, 1, 1, outline_alpha)
-            Line(rounded_rectangle=(x, y, 100, 140, 30), width=3)
+            Line(rounded_rectangle=(x, y, 100, 110, 20), width=3)
 
-        # HP bar boss
+        if vulnerable:
+            Color(1, 0.9, 0.3, 0.7 + 0.3 * self.boss_glow)
+            Line(rounded_rectangle=(x - 4, y - 4, 108, 118, 22), width=3)
+
+        # HP bar
         Color(0.15, 0.15, 0.15, 1)
-        Rectangle(pos=(x - 30, y + 195), size=(160, 12))
-        Color(0.75, 0.9, 0.2, 1)
-        Rectangle(pos=(x - 30, y + 195), size=(160 * (self.boss_hp / self.boss_max_hp), 12))
+        Rectangle(pos=(x - 30, y + 180), size=(160, 12))
+        Color(0.8, 0.2, 0.85, 1)
+        Rectangle(pos=(x - 30, y + 180), size=(160 * (self.boss_hp / self.boss_max_hp), 12))
 
-    def _draw_boss_bullets(self):
-        Color(1, 0.75, 0.2, 1)
-        for b in self.boss_bullets:
-            x = self.w2s(b["x"])
-            Ellipse(pos=(x - 10, b["y"] - 10), size=(20, 20))
+        # Sisa waktu jendela lemah
+        if vulnerable:
+            Color(1, 0.9, 0.3, 1)
+            frac = max(0, self.boss_timer) / self.VULNERABLE_DURATION
+            Rectangle(pos=(x - 30, y + 196), size=(160 * frac, 6))
 
     def _draw_player_trail(self):
         for tr in self.trail:
